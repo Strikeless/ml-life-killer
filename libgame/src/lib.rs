@@ -6,6 +6,7 @@ pub mod board;
 pub mod pos;
 pub mod rule;
 
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Game {
     pub board: GameBoard,
     pub rule: Rule,

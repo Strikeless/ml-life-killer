@@ -22,7 +22,7 @@ pub fn run(state_arc: Arc<RwLock<State>>) {
     let event_state_arc = renderer_state_arc.clone();
 
     let renderer = Renderer::new(RendererWindowConfig {
-        title: "Testing".to_owned(),
+        title: "ml-life-killer".to_owned(),
         width: 480,
         height: 480,
         target_fps: 30,
