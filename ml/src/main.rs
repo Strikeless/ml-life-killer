@@ -86,18 +86,18 @@ where
             .as_millis();
 
         if improved || get_millis_since_notif() > 5000 {
-            let improved_suffix = (improved)
+            let improved_prefix = (improved)
                 .then(|| "IMPROVED".to_owned())
-                .unwrap_or_default();
+                .unwrap_or(" ".repeat("IMPROVED".len()));
 
             println!(
-                "score {:04} -> {:04} (best {:04}), gen {:8}, {:04} ms    {}",
+                "{} score {:05} -> {:05} (best {:05}), gen {:8}, {} ms",
+                improved_prefix,
                 prev_score.unwrap_or(0),
                 new_score,
                 best_score.unwrap_or(0),
                 generation,
                 get_millis_since_notif(),
-                improved_suffix,
             );
 
             last_notif_instant = Instant::now();

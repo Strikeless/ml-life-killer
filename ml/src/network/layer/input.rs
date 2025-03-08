@@ -34,8 +34,10 @@ impl InputLayer {
     {
         let mut values = values.into_iter();
 
-        for dest_value in self.output_values.values_mut() {
-            *dest_value = values.next().unwrap_or(0.0);
+        self.output_values = SlotMap::with_capacity_and_key(self.height);
+        for _ in 0..self.height {
+            let value = values.next().expect("Missing input value");
+            self.output_values.insert(value); // WARN: This is nonsense and we're lucky if this always results in the same keys.
         }
 
         debug_assert!(

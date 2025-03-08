@@ -64,7 +64,7 @@ where
     /// A generation consists of a single set of mutated networks based on the previous network,
     /// of which the best average-performers are selected.
     pub fn train_generation(&self, network: Network) -> (Network, isize) {
-        // -1 because we chain the original network.
+        // NOTE: -1 because we chain the original network.
         let contenders = iter::repeat_n(network.clone(), self.config.generation_contenders - 1)
             .map(|mut new_contender| {
                 for _ in 0..self.config.generation_mutations {
@@ -98,7 +98,8 @@ where
             (contender, total_score)
         });
 
-        // SAFETY: There's always going to be atleast one contender, so this shouldn't ever be an issue.
+        // SAFETY: There's always going to be atleast one contender (due to including the original network),
+        //         so unwrap should always be OK.
         // TODO: Implement unstable again, the config switch already exists.
         scored_contenders.max_by_key(|(_, score)| *score).unwrap()
     }
@@ -146,7 +147,7 @@ where
                 //       from a compute layer index (doesn't include input layer!) to a layer index.
                 let prev_layer_index = comp_layer_index;
 
-                let prev_layer_node_keys = network.layers().nth(prev_layer_index)?.output_keys();
+                let prev_layer_node_keys = network.layer(prev_layer_index)?.output_keys();
 
                 prev_layer_node_keys.into_iter().choose(rng)?
             };
@@ -165,7 +166,7 @@ where
                 return None;
             }
 
-            let weight = rng.random_range(-1.0..1.0);
+            let weight = rng.random_range(-2.0..=2.0);
 
             Some(Mutation::InputCreation {
                 node,

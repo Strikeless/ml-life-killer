@@ -1,7 +1,4 @@
-use std::{
-    cmp::Ordering,
-    ops::{Add, Mul},
-};
+use std::cmp::Ordering;
 
 use itertools::Itertools;
 use libgame::{Game, board::TileState, pos::Position};
@@ -9,9 +6,6 @@ use libgame::{Game, board::TileState, pos::Position};
 use crate::network::{Network, harness::NetworkHarness};
 
 use super::{GameTrainerAdapterConfig, kernel::Kernel};
-
-const NETWORK_OUTPUT_COMBINATOR: fn(KernelOutput, KernelOutput) -> KernelOutput =
-    |acc, output| acc * output;
 
 pub struct NetworkPlayer<'a> {
     pub config: GameTrainerAdapterConfig,
@@ -139,26 +133,4 @@ pub(super) struct KernelOutput {
     // Treated as a boolean with no side-effects.
     // NOTE: This could be changed to a tri-state with a middle-state making no move.
     pub state: f32,
-}
-
-impl Add for KernelOutput {
-    type Output = Self;
-
-    fn add(self, rhs: Self) -> Self::Output {
-        Self {
-            score: self.score + rhs.score,
-            state: self.state + rhs.state,
-        }
-    }
-}
-
-impl Mul for KernelOutput {
-    type Output = Self;
-
-    fn mul(self, rhs: Self) -> Self::Output {
-        Self {
-            score: self.score * rhs.score,
-            state: self.state * rhs.state,
-        }
-    }
 }
