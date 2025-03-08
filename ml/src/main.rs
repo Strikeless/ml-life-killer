@@ -1,57 +1,76 @@
+#![feature(trait_alias, impl_trait_in_bindings)]
+
 use std::{env, fs, path::PathBuf, time::Instant};
 
+use game::{GameTrainerAdapterConfig, GameTrainerAdapterFactory};
 use network::Network;
-use player::kernel::Kernel;
-use trainer::Trainer;
+use serde::{Deserialize, Serialize};
+use trainer::{
+    Trainer, TrainerConfig,
+    adapter::{TrainerAdapter, TrainerAdapterFactory},
+};
 
+mod game;
 mod network;
-mod player;
 mod trainer;
+
+#[derive(Debug, Clone, Copy, Deserialize, Serialize)]
+struct Config {
+    trainer_config: TrainerConfig,
+    game_config: GameTrainerAdapterConfig,
+}
 
 fn main() {
     let mut args = env::args().skip(1);
 
     let run_id = args
         .next()
-        .map(|run_id| (&run_id != "-").then_some(run_id))
-        .flatten()
-        .unwrap_or_default();
+        .and_then(|run_id| (&run_id != "-").then_some(run_id))
+        .unwrap_or_else(|| chrono::Local::now().format("%Y%m%d").to_string());
 
-    let run_prefix = [chrono::Local::now().format("%Y%m%d").to_string(), run_id].join("_");
-
-    let network_input_layer = Kernel::<1>::create_input_layer();
-
-    let mut network = if let Some(network_path) = args.next() {
-        let network_serialized = fs::read(network_path).expect("Couldn't read network file");
-
-        let mut network: Network<Kernel<1>> =
-            rmp_serde::from_slice(&network_serialized).expect("Couldn't deserialize network file");
-        network.input_layer = network_input_layer;
-        network
+    let config = if let Some(config_path) = args.next() {
+        todo!()
     } else {
-        // TODO: Create new network
-        Network::new(
-            network_input_layer,
-            3, // Mid layer count
-            3, // Mid layer height
-            2, // Output layer height
-        )
+        Config {
+            trainer_config: TrainerConfig {
+                generation_contenders: 8,
+                generation_mutations: 5,
+                generation_iterations: 1,
+                generation_unstable: false,
+            },
+            game_config: GameTrainerAdapterConfig {
+                width: 8,
+                height: 8,
+                alive_cells: 1,
+                max_steps: 10,
+                network_consecutive_turns: 1,
+                game_consecutive_turns: 0,
+                kernel_diameter: 1,
+            },
+        }
     };
 
-    let trainer = Trainer {
-        generation_contenders: 8,
-        generation_iterations: 4,
-        generation_mutations: 9,
-        generation_unstable: false,
-        iteration_max_steps: 32,
-        game_board_width: 8,
-        game_board_height: 8,
-        game_board_alive_cells: 32,
+    let network = Network::new(
+        config.game_config.kernel_diameter.pow(2), // Input layer height
+        3,                                         // Hidden layer count
+        3,                                         // Hidden layer height
+        2,                                         // Output layer height
+    );
 
-        player_network_consecutive_turns: 1,
-        player_game_consecutive_turns: 0, // Disable "nature" entirely
+    let adapter_factory = GameTrainerAdapterFactory {
+        config: config.game_config,
     };
 
+    let trainer = Trainer::new(config.trainer_config, adapter_factory);
+
+    run_training(run_id, trainer, network);
+}
+
+fn run_training<A, AF>(run_id: String, trainer: Trainer<A, AF>, mut network: Network)
+where
+    A: TrainerAdapter,
+    AF: TrainerAdapterFactory<A>,
+{
     let mut prev_score = None;
     let mut best_score = None;
     let mut last_notif_instant = Instant::now();
@@ -62,15 +81,14 @@ fn main() {
 
         let improved = best_score.is_some_and(|best_score| new_score > best_score);
 
-        if improved || generation % 1000 == 0 {
+        let get_millis_since_notif = || Instant::now()
+            .duration_since(last_notif_instant)
+            .as_millis();
+
+        if improved || get_millis_since_notif() > 5000 {
             let improved_suffix = (improved)
                 .then(|| "IMPROVED".to_owned())
                 .unwrap_or_default();
-
-            let time_since_last_notif = Instant::now()
-                .duration_since(last_notif_instant)
-                .as_millis();
-            last_notif_instant = Instant::now();
 
             println!(
                 "score {:04} -> {:04} (best {:04}), gen {:8}, {:04} ms    {}",
@@ -78,15 +96,17 @@ fn main() {
                 new_score,
                 best_score.unwrap_or(0),
                 generation,
-                time_since_last_notif,
+                get_millis_since_notif(),
                 improved_suffix,
             );
+
+            last_notif_instant = Instant::now();
         }
 
         if improved {
             let dir = PathBuf::from("networks");
 
-            let path = dir.join(format!("{}_{}", run_prefix, generation));
+            let path = dir.join(format!("{}_{}", run_id, generation));
 
             let network_serialized =
                 rmp_serde::to_vec(&network).expect("Couldn't serialize network");

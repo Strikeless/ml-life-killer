@@ -1,26 +1,23 @@
-use std::iter;
+use std::{iter, marker::PhantomData};
 
+use adapter::{TrainerAdapter, TrainerAdapterFactory};
 use itertools::Itertools;
-use libgame::{
-    Game,
-    board::{GameBoard, TileState},
-    rule::Rule,
-};
 use rand::{
     Rng,
     seq::{IndexedMutRandom, IndexedRandom, IteratorRandom},
 };
+use serde::{Deserialize, Serialize};
 
-use crate::{
-    network::{
-        Network,
-        layer::NodeKey,
-        node::{Node, NodeInput},
-    },
-    player::{self, Player, kernel::Kernel},
+use crate::network::{
+    Network,
+    layer::NodeKey,
+    node::{Node, NodeInput},
 };
 
-pub struct Trainer {
+pub mod adapter;
+
+#[derive(Debug, Clone, Copy, Deserialize, Serialize)]
+pub struct TrainerConfig {
     /// The number of independently mutated networks that contend in a single generation.
     pub generation_contenders: usize,
 
@@ -32,32 +29,45 @@ pub struct Trainer {
 
     /// Whether or not the original network can be replaced by mutated derivatives, even if there was no score gain.
     pub generation_unstable: bool,
-
-    /// The maximum amount of game steps in a single iteration run that can be played before giving up on the task.
-    pub iteration_max_steps: usize,
-
-    pub game_board_width: usize,
-    pub game_board_height: usize,
-    pub game_board_alive_cells: usize,
-
-    pub player_network_consecutive_turns: usize,
-    pub player_game_consecutive_turns: usize,
 }
 
-// Temporary thingy for network state
-type S = Kernel<1>;
+pub struct Trainer<A, AF>
+where
+    A: TrainerAdapter,
+    AF: TrainerAdapterFactory<A>,
+{
+    pub config: TrainerConfig,
 
-impl Trainer {
+    pub adapter_factory: AF,
+    _adapter_phantom: PhantomData<A>,
+}
+
+impl<A, AF> Trainer<A, AF>
+where
+    A: TrainerAdapter,
+    AF: TrainerAdapterFactory<A>,
+{
+    pub fn new(config: TrainerConfig, adapter_factory: AF) -> Self {
+        Self {
+            config,
+            adapter_factory,
+            _adapter_phantom: PhantomData,
+        }
+    }
+}
+
+impl<A, AF> Trainer<A, AF>
+where
+    A: TrainerAdapter,
+    AF: TrainerAdapterFactory<A>,
+{
     /// A generation consists of a single set of mutated networks based on the previous network,
     /// of which the best average-performers are selected.
-    pub fn train_generation(&self, network: Network<S>) -> (Network<S>, isize)
-    where
-        S: Clone,
-    {
+    pub fn train_generation(&self, network: Network) -> (Network, isize) {
         // -1 because we chain the original network.
-        let contenders = iter::repeat_n(network.clone(), self.generation_contenders - 1)
+        let contenders = iter::repeat_n(network.clone(), self.config.generation_contenders - 1)
             .map(|mut new_contender| {
-                for _ in 0..self.generation_mutations {
+                for _ in 0..self.config.generation_mutations {
                     new_contender = self.mutate(new_contender);
                 }
 
@@ -69,18 +79,11 @@ impl Trainer {
             .map(|contender| (contender, Vec::new()))
             .collect_vec();
 
-        for _ in 0..self.generation_iterations {
-            let iteration = TrainingIteration::new_random(
-                self.game_board_width,
-                self.game_board_height,
-                self.game_board_alive_cells,
-                self.iteration_max_steps,
-                self.player_network_consecutive_turns,
-                self.player_game_consecutive_turns,
-            );
+        for _ in 0..self.config.generation_iterations {
+            let iteration_adapter = self.adapter_factory.create_adapter();
 
             for (network, scores) in &mut scoring_contenders {
-                let performance = iteration.try_out(&network);
+                let performance = iteration_adapter.try_out(network);
                 scores.push(performance);
             }
         }
@@ -88,18 +91,19 @@ impl Trainer {
         let scored_contenders = scoring_contenders.into_iter().map(|(contender, scores)| {
             let score_count = scores.len();
 
-            // HACK: Times ten to prevent precision loss leading to worse evolution.
-            let total_score = (scores.into_iter().sum::<isize>() * 10) / score_count as isize;
+            // HACK: Times hundred to avoid precision loss in average score.
+            let total_score =
+                (scores.into_iter().sum::<f32>() * 100.0) as isize / score_count as isize;
 
             (contender, total_score)
         });
 
         // SAFETY: There's always going to be atleast one contender, so this shouldn't ever be an issue.
-        // TODO: Implement unstable again.
+        // TODO: Implement unstable again, the config switch already exists.
         scored_contenders.max_by_key(|(_, score)| *score).unwrap()
     }
 
-    fn mutate(&self, mut network: Network<S>) -> Network<S> {
+    fn mutate(&self, mut network: Network) -> Network {
         #[derive(Debug)]
         enum Mutation<'a> {
             AdjustWeight {
@@ -117,11 +121,11 @@ impl Trainer {
             },
         }
 
-        fn weight_adjustment(network: &mut Network<S>) -> Option<Mutation> {
+        fn weight_adjustment(network: &mut Network) -> Option<Mutation> {
             let rng = &mut rand::rng();
 
-            let net_layer = network.net_layers_mut().choose(rng)?;
-            let node = net_layer.nodes.values_mut().choose(rng)?;
+            let comp_layer = network.compute_layers.choose_mut(rng)?;
+            let node = comp_layer.nodes.values_mut().choose(rng)?;
             let input = node.inputs.choose_mut(rng)?;
 
             let adjustment_max_magnitude = (input.weight.abs() / 2.0).max(0.01);
@@ -130,26 +134,29 @@ impl Trainer {
             Some(Mutation::AdjustWeight { input, adjustment })
         }
 
-        fn input_creation(network: &mut Network<S>) -> Option<Mutation> {
+        fn input_creation(network: &mut Network) -> Option<Mutation> {
             let rng = &mut rand::rng();
 
-            let net_layer_count = network.net_layers().count();
-            let net_layer_index =
-                (net_layer_count > 0).then(|| rng.random_range(0..net_layer_count))?;
+            let comp_layer_count = network.compute_layers.len();
+            let comp_layer_index =
+                (comp_layer_count > 0).then(|| rng.random_range(0..comp_layer_count))?;
 
             let src_node_key = {
-                // NOTE: Net layer index is already the previous layer index here since it doesn't include the input layer!
-                let prev_layer_node_keys =
-                    network.iter_node_keys_by_layer().nth(net_layer_index)?;
+                // NOTE: comp_layer_index is already the previous layer index here since we're going
+                //       from a compute layer index (doesn't include input layer!) to a layer index.
+                let prev_layer_index = comp_layer_index;
+
+                let prev_layer_node_keys = network.layers().nth(prev_layer_index)?.output_keys();
 
                 prev_layer_node_keys.into_iter().choose(rng)?
             };
 
             let node = {
-                let layer = network.net_layers_mut().nth(net_layer_index)?;
+                let layer = network.compute_layers.get_mut(comp_layer_index)?;
                 layer.nodes.values_mut().choose(rng)?
             };
 
+            // If the selected node already has an input to the same source node, don't continue.
             if node
                 .inputs
                 .iter()
@@ -167,15 +174,14 @@ impl Trainer {
             })
         }
 
-        fn input_deletion(network: &mut Network<S>) -> Option<Mutation> {
+        fn input_deletion(network: &mut Network) -> Option<Mutation> {
             let rng = &mut rand::rng();
 
-            let net_layer = network.net_layers_mut().choose(rng)?;
-            let node = net_layer.nodes.values_mut().choose(rng)?;
+            let comp_layer = network.compute_layers.choose_mut(rng)?;
+            let node = comp_layer.nodes.values_mut().choose(rng)?;
 
             let input_index = {
                 let input_count = node.inputs.len();
-
                 (input_count > 0).then(|| rng.random_range(0..input_count))?
             };
 
@@ -222,70 +228,5 @@ impl Trainer {
         }
 
         network
-    }
-}
-
-struct TrainingIteration {
-    game: Game,
-    max_steps: usize,
-    player_network_consecutive_turns: usize,
-    player_game_consecutive_turns: usize,
-}
-
-impl TrainingIteration {
-    pub fn new_random(
-        width: usize,
-        height: usize,
-        alive_cells: usize,
-        max_steps: usize,
-        player_network_consecutive_turns: usize,
-        player_game_consecutive_turns: usize,
-    ) -> Self {
-        let board = GameBoard::new_random(width, height, alive_cells);
-        let game = Game::new(board, Rule::default());
-
-        Self {
-            game,
-            max_steps,
-            player_network_consecutive_turns,
-            player_game_consecutive_turns,
-        }
-    }
-
-    // TODO: How the hell are we gonna deal with multi-network players?
-    pub fn try_out(&self, network: &Network<Kernel<1>>) -> isize {
-        let mut player = Player {
-            // FIXME: This shouldn't need yet another network clone.
-            network_1x1: network.clone(),
-            game: self.game.clone(),
-
-            network_consecutive_turns: self.player_network_consecutive_turns,
-            game_consecutive_turns: self.player_game_consecutive_turns,
-        };
-
-        let initial_alive_cells = Self::count_alive_cells(&player);
-
-        for step in 0..self.max_steps {
-            player.play_step();
-
-            if Self::count_alive_cells(&player) == 0 {
-                // Task accomplished, reward the least steps taken.
-                return (self.max_steps - step) as isize;
-            }
-        }
-
-        // Task wasn't accomplished, punish the least cells killed.
-        let end_alive_cells = Self::count_alive_cells(&player);
-        -100 + initial_alive_cells as isize - end_alive_cells as isize
-    }
-
-    fn count_alive_cells(player: &Player) -> usize {
-        player
-            .game
-            .board
-            .tiles
-            .iter()
-            .filter(|tile| **tile == TileState::Alive)
-            .count()
     }
 }
