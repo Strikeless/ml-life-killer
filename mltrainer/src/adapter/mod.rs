@@ -1,4 +1,6 @@
-use crate::network::Network;
+use libml::network::Network;
+
+pub mod game;
 
 pub trait TrainerAdapterFactory<T>
 where

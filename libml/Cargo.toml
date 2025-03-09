@@ -1,0 +1,12 @@
+[package]
+name = "libml"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+slotmap = { version = "1.0", features = ["serde"] }
+rand = "0.9"
+itertools = "0.14"
+serde = { version = "1.0", features = ["derive"] }
+
+libgame = { path = "../libgame" }

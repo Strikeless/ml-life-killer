@@ -1,7 +1,11 @@
 use std::{iter, marker::PhantomData};
 
-use adapter::{TrainerAdapter, TrainerAdapterFactory};
 use itertools::Itertools;
+use libml::network::{
+    Network,
+    layer::NodeKey,
+    node::{Node, NodeInput},
+};
 use rand::{
     Rng,
     seq::{IndexedMutRandom, IndexedRandom, IteratorRandom},
@@ -9,13 +13,7 @@ use rand::{
 use rayon::iter::{IntoParallelRefMutIterator, ParallelIterator};
 use serde::{Deserialize, Serialize};
 
-use crate::network::{
-    Network,
-    layer::NodeKey,
-    node::{Node, NodeInput},
-};
-
-pub mod adapter;
+use crate::adapter::{TrainerAdapter, TrainerAdapterFactory};
 
 #[derive(Debug, Clone, Copy, Deserialize, Serialize)]
 pub struct TrainerConfig {
@@ -85,10 +83,12 @@ where
 
             // Hide performance issues under the mat with the power of multithreading!
             // PERF: Would it be possible to parallelize this further by doing many iterations simultaneously?
-            scoring_contenders.par_iter_mut().for_each(|(network, scores)| {
-                let performance = iteration_adapter.try_out(network);
-                scores.push(performance);
-            });
+            scoring_contenders
+                .par_iter_mut()
+                .for_each(|(network, scores)| {
+                    let performance = iteration_adapter.try_out(network);
+                    scores.push(performance);
+                });
         }
 
         let scored_contenders = scoring_contenders.into_iter().map(|(contender, scores)| {

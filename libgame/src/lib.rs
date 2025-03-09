@@ -27,6 +27,14 @@ impl Game {
         self.board = GameBoard::with_tiles(self.board.width, self.board.height, next_tiles);
     }
 
+    pub fn count_cells(&self, variant: TileState) -> usize {
+        self.board
+            .tiles
+            .iter()
+            .filter(|tile| **tile == variant)
+            .count()
+    }
+
     fn tick_tile(&self, tile_pos: Position, tile: &TileState) -> TileState {
         let alive_neighbor_count = self
             .tile_neighbors(tile_pos)

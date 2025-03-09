@@ -1,28 +1,34 @@
 use std::cmp::Ordering;
 
 use itertools::Itertools;
+use kernel::Kernel;
 use libgame::{Game, board::TileState, pos::Position};
+use serde::{Deserialize, Serialize};
 
 use crate::network::{Network, harness::NetworkHarness};
 
-use super::{GameTrainerAdapterConfig, kernel::Kernel};
+pub mod kernel;
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+pub struct NetworkPlayerConfig {
+    pub kernel_diameter: usize,
+}
 
 pub struct NetworkPlayer<'a> {
-    pub config: GameTrainerAdapterConfig,
+    pub config: NetworkPlayerConfig,
     pub network_harness: NetworkHarness<'a, Kernel>,
-    pub game: Game,
+    pub game: &'a mut Game,
+}
+
+pub struct NetworkPlayerMove {
+    pub position: Position,
+    pub new_state: TileState,
 }
 
 impl<'a> NetworkPlayer<'a> {
-    pub fn new(
-        network: &'a mut Network,
-        game_template: &Game,
-        config: GameTrainerAdapterConfig,
-    ) -> Self {
+    pub fn new(config: NetworkPlayerConfig, network: &'a mut Network, game: &'a mut Game) -> Self {
         let network_harness = NetworkHarness::new(network)
             .with_inputs(Kernel::input_providers(config.kernel_diameter));
-
-        let game = game_template.clone();
 
         Self {
             config,
@@ -31,26 +37,31 @@ impl<'a> NetworkPlayer<'a> {
         }
     }
 
-    pub fn play_step(&mut self) {
-        for _ in 0..self.config.network_consecutive_turns {
-            self.network_make_move();
-        }
-
-        for _ in 0..self.config.game_consecutive_turns {
-            self.game.tick();
-        }
-    }
-
-    fn network_make_move(&mut self) {
+    pub fn play_step(&mut self) -> Option<NetworkPlayerMove> {
         if let Some((chosen_position, output)) = self.compute() {
-            // SAFETY: The compute method doesn't let the network give arbitrary positions.
+            // SAFETY: The compute method doesn't let the network give arbitrary positions,
+            //         so positions will always correspond to a tile.
             let chosen_tile = self.game.board.tile_mut(chosen_position).unwrap();
 
-            *chosen_tile = match output.state {
-                ..-0.5 => TileState::Dead,
-                0.5.. => TileState::Alive,
-                _ => *chosen_tile, // No move,
+            let wanted_state = match output.state {
+                ..-0.5 => Some(TileState::Dead),
+                0.5.. => Some(TileState::Alive),
+                _ => None,
             };
+
+            let current_state = *chosen_tile;
+            if let Some(wanted_state) = wanted_state && wanted_state != current_state {
+                *chosen_tile = wanted_state;
+
+                Some(NetworkPlayerMove {
+                    new_state: *chosen_tile,
+                    position: chosen_position,
+                })
+            } else {
+                None
+            }
+        } else {
+            None
         }
     }
 
@@ -118,23 +129,12 @@ impl<'a> NetworkPlayer<'a> {
 
         Kernel { tiles }
     }
-
-    pub fn count_alive_cells(&self) -> usize {
-        self.game
-            .board
-            .tiles
-            .iter()
-            .filter(|tile| **tile == TileState::Alive)
-            .count()
-    }
 }
 
 pub(super) struct KernelOutput {
     /// The score by which selecting the position should be preferred.
     pub score: f32,
 
-    // A value from -1.0 to 1.0 representing how much the network wants the tile to be alive.
-    // Treated as a boolean with no side-effects.
-    // NOTE: This could be changed to a tri-state with a middle-state making no move.
+    // A value representing how much the network wants the tile to be alive.
     pub state: f32,
 }

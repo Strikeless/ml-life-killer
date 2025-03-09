@@ -1,8 +1,9 @@
 use std::{fs, path::Path};
 
+use libml::network::Network;
 use serde::{Deserialize, Serialize};
 
-use crate::{Config, network::Network};
+use crate::Config;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SaveData {
