@@ -6,6 +6,7 @@ use rand::{
     Rng,
     seq::{IndexedMutRandom, IndexedRandom, IteratorRandom},
 };
+use rayon::iter::{IntoParallelRefMutIterator, ParallelIterator};
 use serde::{Deserialize, Serialize};
 
 use crate::network::{
@@ -82,10 +83,12 @@ where
         for _ in 0..self.config.generation_iterations {
             let iteration_adapter = self.adapter_factory.create_adapter();
 
-            for (network, scores) in &mut scoring_contenders {
+            // Hide performance issues under the mat with the power of multithreading!
+            // PERF: Would it be possible to parallelize this further by doing many iterations simultaneously?
+            scoring_contenders.par_iter_mut().for_each(|(network, scores)| {
                 let performance = iteration_adapter.try_out(network);
                 scores.push(performance);
-            }
+            });
         }
 
         let scored_contenders = scoring_contenders.into_iter().map(|(contender, scores)| {
@@ -101,6 +104,7 @@ where
         // SAFETY: There's always going to be atleast one contender (due to including the original network),
         //         so unwrap should always be OK.
         // TODO: Implement unstable again, the config switch already exists.
+        // TODO: Implement floating point sorting, it's stupid that we're converting to integers for this.
         scored_contenders.max_by_key(|(_, score)| *score).unwrap()
     }
 

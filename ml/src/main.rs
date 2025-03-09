@@ -1,6 +1,6 @@
 #![feature(trait_alias, impl_trait_in_bindings)]
 
-use std::{env, fs, path::PathBuf, time::Instant};
+use std::{env, path::PathBuf, time::Instant};
 
 use game::{GameTrainerAdapterConfig, GameTrainerAdapterFactory};
 use network::Network;
@@ -38,7 +38,7 @@ fn main() {
             trainer_config: TrainerConfig {
                 generation_contenders: 8,
                 generation_mutations: 5,
-                generation_iterations: 1,
+                generation_iterations: 4,
                 generation_unstable: false,
             },
             game_config: GameTrainerAdapterConfig {
@@ -84,11 +84,21 @@ fn run_training<A, AF>(
     let mut best_score = None;
     let mut last_notif_instant = Instant::now();
 
+    let mut last_saved_rolling_average_score = None;
+    let mut rolling_average_score = None;
+
     for generation in 0.. {
         let (trained_network, new_score) = trainer.train_generation(network);
         network = trained_network;
 
-        let improved = best_score.is_some_and(|best_score| new_score > best_score);
+        rolling_average_score = Some(
+            rolling_average_score
+                .map(|avg| (avg * 999.0 + new_score as f32) / 1000.0)
+                .unwrap_or(new_score as f32)
+        );
+
+        let improved = last_saved_rolling_average_score
+            .is_none_or(|last_avg| rolling_average_score.unwrap() >= last_avg + 10.0);
 
         let get_millis_since_notif = || {
             Instant::now()
@@ -102,11 +112,12 @@ fn run_training<A, AF>(
                 .unwrap_or(" ".repeat("IMPROVED".len()));
 
             println!(
-                "{} score {:05} -> {:05} (best {:05}), gen {:8}, {} ms",
+                "{} score {:05} -> {:05} (best {:05}, avg {:05.2}), gen {:8}, {} ms",
                 improved_prefix,
                 prev_score.unwrap_or(0),
                 new_score,
                 best_score.unwrap_or(0),
+                rolling_average_score.unwrap(),
                 generation,
                 get_millis_since_notif(),
             );
@@ -124,6 +135,8 @@ fn run_training<A, AF>(
                     network: network.clone(),
                 },
             );
+
+            last_saved_rolling_average_score = rolling_average_score;
         }
 
         best_score = Some(

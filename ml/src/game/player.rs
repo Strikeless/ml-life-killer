@@ -103,8 +103,12 @@ impl<'a> NetworkPlayer<'a> {
 
         let positions = relative_positions.map(|(rel_x, rel_y)| {
             Some(Position {
-                x: (center_pos.x as isize).checked_add(rel_x).filter(|val| val.is_positive())? as usize,
-                y: (center_pos.y as isize).checked_add(rel_y).filter(|val| val.is_positive())? as usize,
+                x: (center_pos.x as isize)
+                    .checked_add(rel_x)
+                    .filter(|val| val.is_positive())? as usize,
+                y: (center_pos.y as isize)
+                    .checked_add(rel_y)
+                    .filter(|val| val.is_positive())? as usize,
             })
         });
 
