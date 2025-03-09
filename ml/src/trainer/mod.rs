@@ -91,9 +91,9 @@ where
         let scored_contenders = scoring_contenders.into_iter().map(|(contender, scores)| {
             let score_count = scores.len();
 
-            // HACK: Times hundred to avoid precision loss in average score.
+            // HACK: Times ten to avoid precision loss of average score due to the integer conversion.
             let total_score =
-                (scores.into_iter().sum::<f32>() * 100.0) as isize / score_count as isize;
+                (scores.into_iter().sum::<f32>() * 10.0 / score_count as f32) as isize;
 
             (contender, total_score)
         });
@@ -146,9 +146,7 @@ where
                 // NOTE: comp_layer_index is already the previous layer index here since we're going
                 //       from a compute layer index (doesn't include input layer!) to a layer index.
                 let prev_layer_index = comp_layer_index;
-
                 let prev_layer_node_keys = network.layer(prev_layer_index)?.output_keys();
-
                 prev_layer_node_keys.into_iter().choose(rng)?
             };
 

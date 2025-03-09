@@ -41,7 +41,7 @@ fn main() {
             game_config: GameTrainerAdapterConfig {
                 width: 8,
                 height: 8,
-                alive_cells: 1,
+                alive_cells: 10,
                 max_steps: 10,
                 network_consecutive_turns: 1,
                 game_consecutive_turns: 0,
@@ -81,11 +81,13 @@ where
 
         let improved = best_score.is_some_and(|best_score| new_score > best_score);
 
-        let get_millis_since_notif = || Instant::now()
-            .duration_since(last_notif_instant)
-            .as_millis();
+        let get_millis_since_notif = || {
+            Instant::now()
+                .duration_since(last_notif_instant)
+                .as_millis()
+        };
 
-        if improved || get_millis_since_notif() > 5000 {
+        if improved || get_millis_since_notif() >= 5000 {
             let improved_prefix = (improved)
                 .then(|| "IMPROVED".to_owned())
                 .unwrap_or(" ".repeat("IMPROVED".len()));
