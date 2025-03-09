@@ -4,6 +4,7 @@ use std::{env, fs, path::PathBuf, time::Instant};
 
 use game::{GameTrainerAdapterConfig, GameTrainerAdapterFactory};
 use network::Network;
+use savedata::SaveData;
 use serde::{Deserialize, Serialize};
 use trainer::{
     Trainer, TrainerConfig,
@@ -12,6 +13,7 @@ use trainer::{
 
 mod game;
 mod network;
+mod savedata;
 mod trainer;
 
 #[derive(Debug, Clone, Copy, Deserialize, Serialize)]
@@ -28,10 +30,11 @@ fn main() {
         .and_then(|run_id| (&run_id != "-").then_some(run_id))
         .unwrap_or_else(|| chrono::Local::now().format("%Y%m%d").to_string());
 
-    let config = if let Some(config_path) = args.next() {
-        todo!()
+    let (config, network) = if let Some(config_path) = args.next() {
+        let SaveData { config, network } = savedata::load(config_path);
+        (config, network)
     } else {
-        Config {
+        let config = Config {
             trainer_config: TrainerConfig {
                 generation_contenders: 8,
                 generation_mutations: 5,
@@ -39,23 +42,25 @@ fn main() {
                 generation_unstable: false,
             },
             game_config: GameTrainerAdapterConfig {
-                width: 8,
-                height: 8,
+                width: 4,
+                height: 4,
                 alive_cells: 10,
                 max_steps: 10,
                 network_consecutive_turns: 1,
                 game_consecutive_turns: 0,
-                kernel_diameter: 1,
+                kernel_diameter: 5,
             },
-        }
-    };
+        };
 
-    let network = Network::new(
-        config.game_config.kernel_diameter.pow(2), // Input layer height
-        3,                                         // Hidden layer count
-        3,                                         // Hidden layer height
-        2,                                         // Output layer height
-    );
+        let network = Network::new(
+            config.game_config.kernel_diameter.pow(2), // Input layer height
+            3,                                         // Hidden layer count
+            3,                                         // Hidden layer height
+            2,                                         // Output layer height
+        );
+
+        (config, network)
+    };
 
     let adapter_factory = GameTrainerAdapterFactory {
         config: config.game_config,
@@ -63,11 +68,15 @@ fn main() {
 
     let trainer = Trainer::new(config.trainer_config, adapter_factory);
 
-    run_training(run_id, trainer, network);
+    run_training(run_id, config, trainer, network);
 }
 
-fn run_training<A, AF>(run_id: String, trainer: Trainer<A, AF>, mut network: Network)
-where
+fn run_training<A, AF>(
+    run_id: String,
+    config: Config,
+    trainer: Trainer<A, AF>,
+    mut network: Network,
+) where
     A: TrainerAdapter,
     AF: TrainerAdapterFactory<A>,
 {
@@ -106,15 +115,15 @@ where
         }
 
         if improved {
-            let dir = PathBuf::from("networks");
+            let path = PathBuf::from("networks").join(format!("{}_gen{}.json", run_id, generation));
 
-            let path = dir.join(format!("{}_{}", run_id, generation));
-
-            let network_serialized =
-                rmp_serde::to_vec(&network).expect("Couldn't serialize network");
-
-            let _ = fs::create_dir_all(&dir);
-            fs::write(path, network_serialized).expect("Couldn't save serialized network");
+            savedata::save(
+                path,
+                SaveData {
+                    config: config.clone(),
+                    network: network.clone(),
+                },
+            );
         }
 
         best_score = Some(

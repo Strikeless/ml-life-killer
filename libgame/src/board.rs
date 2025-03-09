@@ -17,7 +17,7 @@ impl GameBoard {
 
     pub fn new_random(width: usize, height: usize, alive_cells: usize) -> Self {
         let mut board = Self::new(width, height);
-        
+
         let mut available_board_positions = (0..board.width)
             .cartesian_product(0..board.height)
             .map(|(x, y)| Position { x, y })
@@ -29,9 +29,7 @@ impl GameBoard {
                     panic!("Board size too small for requested alive cell count");
                 }
 
-                let chosen_position_index = rand::random_range(
-                    0..available_board_positions.len()
-                );
+                let chosen_position_index = rand::random_range(0..available_board_positions.len());
 
                 available_board_positions.swap_remove(chosen_position_index)
             };
@@ -81,6 +79,10 @@ impl GameBoard {
         let Position { x, y } = pos.into();
 
         if x >= self.width {
+            return None;
+        }
+
+        if y >= self.height {
             return None;
         }
 

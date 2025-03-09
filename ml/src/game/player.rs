@@ -96,15 +96,15 @@ impl<'a> NetworkPlayer<'a> {
     }
 
     fn get_kernel(&self, center_pos: Position) -> Kernel {
-        let kernel_radius = (self.config.kernel_diameter.isqrt() / 2) as isize;
+        let kernel_radius = (self.config.kernel_diameter / 2) as isize;
 
         let relative_positions =
             (-kernel_radius..=kernel_radius).cartesian_product(-kernel_radius..=kernel_radius);
 
         let positions = relative_positions.map(|(rel_x, rel_y)| {
             Some(Position {
-                x: (center_pos.x as isize).checked_add(rel_x)? as usize,
-                y: (center_pos.y as isize).checked_add(rel_y)? as usize,
+                x: (center_pos.x as isize).checked_add(rel_x).filter(|val| val.is_positive())? as usize,
+                y: (center_pos.y as isize).checked_add(rel_y).filter(|val| val.is_positive())? as usize,
             })
         });
 
