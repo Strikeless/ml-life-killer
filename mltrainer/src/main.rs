@@ -1,6 +1,6 @@
 #![feature(let_chains)]
 
-use std::{cmp::Ordering, collections::VecDeque, env, fmt::{format, Arguments}, path::PathBuf, time::Instant};
+use std::{cmp::Ordering, collections::VecDeque, env, path::PathBuf, time::Instant};
 
 use adapter::{game::{GameTrainerAdapterConfig, GameTrainerAdapterFactory}, TrainerAdapter, TrainerAdapterFactory};
 use colored::{ColoredString, Colorize};
@@ -34,28 +34,28 @@ fn main() {
     } else {
         let config = Config {
             trainer_config: TrainerConfig {
-                generation_contenders: 4,
-                generation_mutations: 5,
-                generation_iterations: 5,
+                generation_contenders: 8,
+                generation_mutations: 9,   // 15,  9
+                generation_iterations: 10, //  2, 10
                 generation_unstable: false,
+                slow_generational_lookahead: 0,
             },
             adapter_config: GameTrainerAdapterConfig {
-                width: 8,
-                height: 8,
-                alive_cells: 2,
-                max_steps: 4,
-                network_consecutive_turns: 1,
-                game_consecutive_turns: 0,
+                width: 8,        //  8,  12
+                height: 8,       //  8,  12
+                alive_cells: 16, // 16,  72
+                max_rounds: 20,  // 20,  80
+                disable_nature: true,
             },
             player_config: NetworkPlayerConfig {
-                kernel_diameter: 1,
+                kernel_diameter: 5,
             },
         };
 
         let network = Network::new(
             config.player_config.kernel_diameter.pow(2), // Input layer height
             3,                                           // Hidden layer count
-            3,                                           // Hidden layer height
+            15,                                          // Hidden layer height
             2,                                           // Output layer height
         );
 
@@ -81,12 +81,14 @@ fn run_training<A, AF>(
     A: TrainerAdapter,
     AF: TrainerAdapterFactory<A>,
 {
-    let mut score = ValueThingy::new(1000);
-    let mut saved_avg_score = None;
+    let mut score = ValueThingy::new(50);
+    let mut last_save_avg_score = None;
 
     let mut last_notif_instant = Instant::now();
     let mut last_notif_generation = 0;
     let mut last_notif_score = score.clone();
+
+    let mut last_save_instant = Instant::now();
 
     for generation in 0.. {
         let (trained_network, new_score) = trainer.train_generation(network);
@@ -95,23 +97,22 @@ fn run_training<A, AF>(
         score.update(new_score);
 
         let avg_score = score.average();
-        if saved_avg_score.is_none() {
-            saved_avg_score = Some(avg_score);
+        if last_save_avg_score.is_none() && score.averages_ready() {
+            last_save_avg_score = Some(avg_score);
         }
-        let saved_avg_score = saved_avg_score.as_mut().unwrap();
 
-        let improved = avg_score >= *saved_avg_score + 10.0;
+        let improved = last_save_avg_score.is_some_and(|saved_avg_score| avg_score >= saved_avg_score + 10.0);
+
+        let current_instant = Instant::now();
 
         let get_millis_since_notif = || {
-            Instant::now()
+            current_instant
                 .duration_since(last_notif_instant)
                 .as_millis()
         };
 
         if improved || get_millis_since_notif() >= 1000 {
-            let current_instant = Instant::now();
-
-            let improved_prefix = (improved)
+            let improved_prefix = improved
                 .then(|| "IMPROVED".to_owned())
                 .unwrap_or(" ".repeat("IMPROVED".len()))
                 .green();
@@ -128,12 +129,12 @@ fn run_training<A, AF>(
                 generations_per_second,
             );
 
-            last_notif_instant = Instant::now();
+            last_notif_instant = current_instant;
             last_notif_generation = generation;
             last_notif_score = score.clone();
         }
 
-        if improved {
+        if improved || current_instant.duration_since(last_save_instant).as_secs() > 60 {
             let path = PathBuf::from("networks").join(format!("{}_gen{}.json", run_id, generation));
 
             savedata::save(
@@ -144,13 +145,15 @@ fn run_training<A, AF>(
                 },
             );
 
-            *saved_avg_score = avg_score;
+            last_save_avg_score = Some(avg_score);
+            last_save_instant = current_instant;
         }
     }
 }
 
-fn option_change_colored<T>(new: Option<T>, old: Option<T>, fmt_fn: fn(T) -> String) -> ColoredString where T: PartialOrd + Default {
-    change_colored(new.unwrap_or_default(), old.unwrap_or_default(), fmt_fn)
+fn option_change_colored<T>(new: Option<T>, old: Option<T>, fmt_fn: fn(T) -> String) -> ColoredString where T: PartialOrd + Default + Copy {
+    let new_or_default = new.unwrap_or_default();
+    change_colored(new_or_default, old.unwrap_or(new_or_default), fmt_fn)
 }
 
 fn change_colored<T>(new: T, old: T, fmt_fn: fn(T) -> String) -> ColoredString where T: PartialOrd {
@@ -199,5 +202,9 @@ impl ValueThingy {
 
     pub fn min(&self) -> Option<isize> {
         self.values.iter().min().copied()
+    }
+
+    pub fn averages_ready(&self) -> bool {
+        self.values.len() >= self.len
     }
 }

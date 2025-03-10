@@ -16,10 +16,11 @@ pub struct GameTrainerAdapterConfig {
     pub width: usize,
     pub height: usize,
     pub alive_cells: usize,
-    pub max_steps: usize,
+    pub max_rounds: usize,
 
-    pub network_consecutive_turns: usize,
-    pub game_consecutive_turns: usize,
+    /// Disable any "natural" progression of the game completely,
+    /// leaving only the network to make changes to the board, this may be useful in the beginning of training.
+    pub disable_nature: bool,
 }
 
 pub struct GameTrainerAdapterFactory {
@@ -55,44 +56,61 @@ impl GameTrainerAdapter {
             game_template,
         }
     }
+
+    fn get_reference_score(&self, game: &Game) -> isize {
+        if self.config.disable_nature {
+            0
+        } else {
+            let mut game = game.clone();
+            let initial_cells_alive = game.count_cells(TileState::Alive);
+
+            for _ in 0..self.config.max_rounds {
+                game.tick();
+            }
+
+            let finished_cells_alive = game.count_cells(TileState::Alive);
+            initial_cells_alive as isize - finished_cells_alive as isize
+        }
+    }
+
+    fn get_network_score(&self, mut game: Game, network: &mut Network) -> isize {
+        let mut network_player = NetworkPlayer::new(
+            self.player_config,
+            network,
+        );
+
+        let initial_cells_alive = game.count_cells(TileState::Alive);
+
+        let mut rounds_taken = 0;
+        let finished_cells_alive = loop {
+            rounds_taken += 1;
+
+            network_player.play_step(&mut game);
+
+            if !self.config.disable_nature {
+                game.tick();
+            }
+
+            let alive_cells = game.count_cells(TileState::Alive);
+            if rounds_taken >= self.config.max_rounds || alive_cells == 0 {
+                break alive_cells;
+            }
+        };
+
+        let cells_killed_reward = initial_cells_alive as isize - finished_cells_alive as isize;
+        let taken_rounds_punishment = (self.config.max_rounds - rounds_taken) as isize;
+
+        cells_killed_reward - taken_rounds_punishment
+    }
 }
 
 impl TrainerAdapter for GameTrainerAdapter {
-    fn try_out(&self, network: &mut Network) -> f32 {
-        let mut game = self.game_template.clone();
-        let mut player = NetworkPlayer::new(self.player_config, network, &mut game);
+    fn try_out(&self, network: &mut Network) -> isize {
+        let game = self.game_template.clone();
 
-        let initial_alive_cells = player.game.count_cells(TileState::Alive);
-        let mut killed_cells: isize = 0;
+        let reference_score = self.get_reference_score(&game);
+        let network_score = self.get_network_score(game, network);
 
-        let mut steps_taken = 0;
-        loop {
-            steps_taken += 1;
-            if steps_taken >= self.config.max_steps {
-                break;
-            }
-
-            let made_move = player.play_step();
-
-            if let Some(made_move) = made_move {
-                match made_move.new_state {
-                    TileState::Alive => killed_cells -= 1,
-                    TileState::Dead => killed_cells += 1,
-                }
-            }
-
-            let currently_alive_cells = if self.config.game_consecutive_turns == 0 {
-                // Faster shortcut to getting currently alive cells, since only we change cell states.
-                (initial_alive_cells as isize - killed_cells) as usize
-            } else {
-                player.game.count_cells(TileState::Alive)
-            };
-
-            if currently_alive_cells == 0 {
-                break;
-            }
-        }
-
-        killed_cells as f32 - steps_taken as f32
+        network_score - reference_score
     }
 }

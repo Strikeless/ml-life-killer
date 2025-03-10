@@ -17,7 +17,6 @@ pub struct NetworkPlayerConfig {
 pub struct NetworkPlayer<'a> {
     pub config: NetworkPlayerConfig,
     pub network_harness: NetworkHarness<'a, Kernel>,
-    pub game: &'a mut Game,
 }
 
 pub struct NetworkPlayerMove {
@@ -26,22 +25,21 @@ pub struct NetworkPlayerMove {
 }
 
 impl<'a> NetworkPlayer<'a> {
-    pub fn new(config: NetworkPlayerConfig, network: &'a mut Network, game: &'a mut Game) -> Self {
+    pub fn new(config: NetworkPlayerConfig, network: &'a mut Network) -> Self {
         let network_harness = NetworkHarness::new(network)
             .with_inputs(Kernel::input_providers(config.kernel_diameter));
 
         Self {
             config,
             network_harness,
-            game,
         }
     }
 
-    pub fn play_step(&mut self) -> Option<NetworkPlayerMove> {
-        if let Some((chosen_position, output)) = self.compute() {
+    pub fn play_step(&mut self, game: &mut Game) -> Option<NetworkPlayerMove> {
+        if let Some((chosen_position, output)) = self.compute(&game) {
             // SAFETY: The compute method doesn't let the network give arbitrary positions,
             //         so positions will always correspond to a tile.
-            let chosen_tile = self.game.board.tile_mut(chosen_position).unwrap();
+            let chosen_tile = game.board.tile_mut(chosen_position).unwrap();
 
             let wanted_state = match output.state {
                 ..-0.5 => Some(TileState::Dead),
@@ -65,15 +63,15 @@ impl<'a> NetworkPlayer<'a> {
         }
     }
 
-    fn compute(&mut self) -> Option<(Position, KernelOutput)> {
+    fn compute(&mut self, game: &Game) -> Option<(Position, KernelOutput)> {
         // Cartesian_product is smartie speech for all the unique combinations of items.
-        let positions = (0..self.game.board.width)
-            .cartesian_product(0..self.game.board.height)
+        let positions = (0..game.board.width)
+            .cartesian_product(0..game.board.height)
             .map(|(x, y)| Position { x, y });
 
         let scored_positions = positions
             .into_iter()
-            .map(|pos| (pos, self.compute_pos(pos)));
+            .map(|pos| (pos, self.compute_pos(game, pos)));
 
         // Pick the top by highest score.
         scored_positions.into_iter().max_by(
@@ -90,8 +88,8 @@ impl<'a> NetworkPlayer<'a> {
         )
     }
 
-    fn compute_pos(&mut self, pos: Position) -> KernelOutput {
-        let kernel = self.get_kernel(pos);
+    fn compute_pos(&mut self, game: &Game, pos: Position) -> KernelOutput {
+        let kernel = self.get_kernel(game, pos);
         let mut network_outputs = self.network_harness.compute(&kernel);
 
         let mut next = || {
@@ -106,7 +104,7 @@ impl<'a> NetworkPlayer<'a> {
         }
     }
 
-    fn get_kernel(&self, center_pos: Position) -> Kernel {
+    fn get_kernel(&self, game: &Game, center_pos: Position) -> Kernel {
         let kernel_radius = (self.config.kernel_diameter / 2) as isize;
 
         let relative_positions =
@@ -124,7 +122,7 @@ impl<'a> NetworkPlayer<'a> {
         });
 
         let tiles = positions
-            .map(|maybe_position| self.game.board.tile(maybe_position?).copied())
+            .map(|maybe_position| game.board.tile(maybe_position?).copied())
             .collect_vec();
 
         Kernel { tiles }

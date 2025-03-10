@@ -28,6 +28,12 @@ pub struct TrainerConfig {
 
     /// Whether or not the original network can be replaced by mutated derivatives, even if there was no score gain.
     pub generation_unstable: bool,
+
+    /// How many generations to try mutating upfront when trying a network during a generation.
+    /// NOTE: This is incredibly slow, and gets exponentially slower by each lookahead layer!
+    ///       I would assume this to substantially reduce generational regressions, but it may not be worth it.
+    /// TODO: Implement
+    pub slow_generational_lookahead: usize,
 }
 
 pub struct Trainer<A, AF>
@@ -95,8 +101,7 @@ where
             let score_count = scores.len();
 
             // HACK: Times ten to avoid precision loss of average score due to the integer conversion.
-            let total_score =
-                (scores.into_iter().sum::<f32>() * 10.0 / score_count as f32) as isize;
+            let total_score = scores.into_iter().sum::<isize>() * 10 / score_count as isize;
 
             (contender, total_score)
         });

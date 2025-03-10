@@ -10,5 +10,5 @@ where
 }
 
 pub trait TrainerAdapter: Sync {
-    fn try_out(&self, network: &mut Network) -> f32;
+    fn try_out(&self, network: &mut Network) -> isize;
 }
