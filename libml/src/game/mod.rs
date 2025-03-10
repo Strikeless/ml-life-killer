@@ -8,6 +8,7 @@ use serde::{Deserialize, Serialize};
 use crate::network::{Network, harness::NetworkHarness};
 
 pub mod kernel;
+pub mod networksave;
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
 pub struct NetworkPlayerConfig {
@@ -48,7 +49,9 @@ impl<'a> NetworkPlayer<'a> {
             };
 
             let current_state = *chosen_tile;
-            if let Some(wanted_state) = wanted_state && wanted_state != current_state {
+            if let Some(wanted_state) = wanted_state
+                && wanted_state != current_state
+            {
                 *chosen_tile = wanted_state;
 
                 Some(NetworkPlayerMove {
