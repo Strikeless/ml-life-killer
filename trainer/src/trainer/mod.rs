@@ -109,7 +109,6 @@ where
         // SAFETY: There's always going to be atleast one contender (due to including the original network),
         //         so unwrap should always be OK.
         // TODO: Implement unstable again, the config switch already exists.
-        // TODO: Implement floating point sorting, it's stupid that we're converting to integers for this.
         scored_contenders.max_by_key(|(_, score)| *score).unwrap()
     }
 

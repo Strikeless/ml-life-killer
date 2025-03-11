@@ -10,5 +10,7 @@ winit = "0.30"
 pixels = "0.15"
 spin_sleep = "1.3"
 
+ouroboros = "0.18"
+
 libgame = { path = "../libgame" }
 libml = { path = "../libml" }

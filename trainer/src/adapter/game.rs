@@ -74,10 +74,7 @@ impl GameTrainerAdapter {
     }
 
     fn get_network_score(&self, mut game: Game, network: &mut Network) -> isize {
-        let mut network_player = NetworkPlayer::new(
-            self.player_config,
-            network,
-        );
+        let mut network_player = NetworkPlayer::new(self.player_config, network);
 
         let initial_cells_alive = game.count_cells(TileState::Alive);
 

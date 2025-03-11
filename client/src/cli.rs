@@ -7,9 +7,10 @@ use std::{
 
 use anyhow::{anyhow, bail, Context};
 use libgame::board::{GameBoard, TileState};
+use libml::game::networksave::NetworkSave;
 
 use crate::{
-    ticker::{nature::NatureTicker, TickerHost},
+    ticker::{ml::MLTicker, nature::NatureTicker, Ticker, TickerGenerator, TickerHost},
     State,
 };
 
@@ -44,18 +45,37 @@ where
             let interval_millis = args
                 .next()
                 .and_then(|s| u64::from_str_radix(s, 10).ok())
-                .unwrap_or(500);
+                .unwrap_or(200);
 
-            let ticker = match args.next() {
-                Some("nature") | None => Box::new(NatureTicker),
-                Some("network") => todo!(),
+            let ticker_generator: Box<dyn TickerGenerator> = match args.next() {
+                Some("nature") | None => {
+                    let generator = || Box::new(NatureTicker) as Box<dyn Ticker>;
+                    Box::new(generator)
+                }
+                Some("network") => {
+                    let network_save_path =
+                        args.next().context("No network path provided")?.to_owned();
+
+                    let generator = || {
+                        let network_save = NetworkSave::load(network_save_path)
+                            .expect("Couldn't load network save");
+
+                        let NetworkSave {
+                            player_config,
+                            network,
+                        } = network_save;
+
+                        Box::new(MLTicker::new(network, player_config)) as Box<dyn Ticker>
+                    };
+                    Box::new(generator)
+                }
                 Some(name) => bail!("Unknown ticker type '{}'", name),
             };
 
             let ticker_host = TickerHost::start(
                 state_arc.clone(),
                 Duration::from_millis(interval_millis),
-                ticker,
+                ticker_generator,
             );
 
             state_arc

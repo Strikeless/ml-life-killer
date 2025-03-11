@@ -2,9 +2,8 @@
 
 use std::{
     collections::HashMap,
-    sync::{mpsc, Arc, RwLock},
+    sync::{Arc, RwLock},
     thread,
-    time::Duration,
 };
 
 use libgame::{board::GameBoard, rule::Rule, Game};

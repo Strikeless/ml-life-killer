@@ -1,23 +1,26 @@
 #![feature(let_chains)]
 
-use std::{cmp::Ordering, collections::VecDeque, env, path::PathBuf, time::Instant};
+use std::{cmp::Ordering, collections::VecDeque, env, fs, path::PathBuf, time::Instant};
 
-use adapter::{game::{GameTrainerAdapterConfig, GameTrainerAdapterFactory}, TrainerAdapter, TrainerAdapterFactory};
+use adapter::{
+    TrainerAdapter, TrainerAdapterFactory,
+    game::{GameTrainerAdapterConfig, GameTrainerAdapterFactory},
+};
 use colored::{ColoredString, Colorize};
-use libml::{game::NetworkPlayerConfig, network::Network};
-use savedata::SaveData;
+use libml::{
+    game::{NetworkPlayerConfig, networksave::NetworkSave},
+    network::Network,
+};
 use serde::{Deserialize, Serialize};
 use trainer::{Trainer, TrainerConfig};
 
 mod adapter;
-mod savedata;
 mod trainer;
 
 #[derive(Debug, Clone, Copy, Deserialize, Serialize)]
 struct Config {
     trainer_config: TrainerConfig, // Configuration for the training process.
     adapter_config: GameTrainerAdapterConfig, // Configuration for the games played during training.
-    player_config: NetworkPlayerConfig, // Configuration for the network.
 }
 
 fn main() {
@@ -28,11 +31,32 @@ fn main() {
         .and_then(|run_id| (&run_id != "-").then_some(run_id))
         .unwrap_or_else(|| chrono::Local::now().format("%Y%m%d").to_string());
 
-    let (config, network) = if let Some(config_path) = args.next() {
-        let SaveData { config, network } = savedata::load(config_path);
-        (config, network)
+    let network_save = if let Some(network_save_path) = args.next() {
+        NetworkSave::load(network_save_path).expect("Couldn't load network save")
     } else {
-        let config = Config {
+        // TODO: Ask network parameters from the user interactively
+        let kernel_diameter: usize = 5;
+
+        let network = Network::new(
+            kernel_diameter.pow(2), // Input layer height
+            3,                      // Hidden layer count
+            15,                     // Hidden layer height
+            2,                      // Output layer height
+        );
+
+        let player_config = NetworkPlayerConfig { kernel_diameter };
+
+        NetworkSave {
+            network,
+            player_config,
+        }
+    };
+
+    let config = if let Some(config_path) = args.next() {
+        let config_serialized = fs::read(config_path).expect("Couldn't read config");
+        serde_json::from_slice(&config_serialized).expect("Couldn't deserialize config")
+    } else {
+        Config {
             trainer_config: TrainerConfig {
                 generation_contenders: 8,
                 generation_mutations: 9,   // 15,  9
@@ -45,37 +69,31 @@ fn main() {
                 height: 8,       //  8,  12
                 alive_cells: 16, // 16,  72
                 max_rounds: 20,  // 20,  80
-                disable_nature: true,
+                disable_nature: false,
             },
-            player_config: NetworkPlayerConfig {
-                kernel_diameter: 5,
-            },
-        };
-
-        let network = Network::new(
-            config.player_config.kernel_diameter.pow(2), // Input layer height
-            3,                                           // Hidden layer count
-            15,                                          // Hidden layer height
-            2,                                           // Output layer height
-        );
-
-        (config, network)
+        }
     };
 
     let adapter_factory = GameTrainerAdapterFactory {
         config: config.adapter_config,
-        player_config: config.player_config,
+        player_config: network_save.player_config,
     };
 
     let trainer = Trainer::new(config.trainer_config, adapter_factory);
 
-    run_training(run_id, config, trainer, network);
+    run_training(
+        run_id,
+        trainer,
+        network_save.player_config,
+        network_save.network,
+    );
 }
 
 fn run_training<A, AF>(
     run_id: String,
-    config: Config,
     trainer: Trainer<A, AF>,
+
+    network_player_config: NetworkPlayerConfig,
     mut network: Network,
 ) where
     A: TrainerAdapter,
@@ -101,7 +119,8 @@ fn run_training<A, AF>(
             last_save_avg_score = Some(avg_score);
         }
 
-        let improved = last_save_avg_score.is_some_and(|saved_avg_score| avg_score >= saved_avg_score + 10.0);
+        let improved =
+            last_save_avg_score.is_some_and(|saved_avg_score| avg_score >= saved_avg_score + 10.0);
 
         let current_instant = Instant::now();
 
@@ -118,14 +137,27 @@ fn run_training<A, AF>(
                 .green();
 
             let notif_passed_time = current_instant.duration_since(last_notif_instant);
-            let generations_per_second = (generation - last_notif_generation) as f32 / notif_passed_time.as_secs_f32();
+            let generations_per_second =
+                (generation - last_notif_generation) as f32 / notif_passed_time.as_secs_f32();
 
             println!(
                 "{improved_prefix} gen {generation:7}: {} | {} < {} < {} | {:4.2} gen/s",
-                option_change_colored(score.value(), last_notif_score.value(), |score| format!("{:4}", score)),
-                option_change_colored(score.min(), last_notif_score.min(), |min| format!("{:4}", min)),
-                change_colored(score.average(), last_notif_score.average(), |avg| format!("{:4.2}", avg)),
-                option_change_colored(score.max(), last_notif_score.max(), |max| format!("{:4}", max)),
+                option_change_colored(score.value(), last_notif_score.value(), |score| format!(
+                    "{:4}",
+                    score
+                )),
+                option_change_colored(score.min(), last_notif_score.min(), |min| format!(
+                    "{:4}",
+                    min
+                )),
+                change_colored(score.average(), last_notif_score.average(), |avg| format!(
+                    "{:4.2}",
+                    avg
+                )),
+                option_change_colored(score.max(), last_notif_score.max(), |max| format!(
+                    "{:4}",
+                    max
+                )),
                 generations_per_second,
             );
 
@@ -137,13 +169,12 @@ fn run_training<A, AF>(
         if improved || current_instant.duration_since(last_save_instant).as_secs() > 60 {
             let path = PathBuf::from("networks").join(format!("{}_gen{}.json", run_id, generation));
 
-            savedata::save(
-                path,
-                SaveData {
-                    config: config.clone(),
-                    network: network.clone(),
-                },
-            );
+            NetworkSave {
+                network: network.clone(),
+                player_config: network_player_config,
+            }
+            .save(path)
+            .expect("Couldn't save network");
 
             last_save_avg_score = Some(avg_score);
             last_save_instant = current_instant;
@@ -151,12 +182,22 @@ fn run_training<A, AF>(
     }
 }
 
-fn option_change_colored<T>(new: Option<T>, old: Option<T>, fmt_fn: fn(T) -> String) -> ColoredString where T: PartialOrd + Default + Copy {
+fn option_change_colored<T>(
+    new: Option<T>,
+    old: Option<T>,
+    fmt_fn: fn(T) -> String,
+) -> ColoredString
+where
+    T: PartialOrd + Default + Copy,
+{
     let new_or_default = new.unwrap_or_default();
     change_colored(new_or_default, old.unwrap_or(new_or_default), fmt_fn)
 }
 
-fn change_colored<T>(new: T, old: T, fmt_fn: fn(T) -> String) -> ColoredString where T: PartialOrd {
+fn change_colored<T>(new: T, old: T, fmt_fn: fn(T) -> String) -> ColoredString
+where
+    T: PartialOrd,
+{
     match new.partial_cmp(&old) {
         Some(Ordering::Equal) | None => fmt_fn(new).white(),
         Some(Ordering::Greater) => fmt_fn(new).bright_green(),
