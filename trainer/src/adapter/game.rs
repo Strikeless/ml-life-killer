@@ -73,7 +73,7 @@ impl GameTrainerAdapter {
         }
     }
 
-    fn get_network_score(&self, mut game: Game, network: &mut Network) -> isize {
+    fn get_network_score(&self, mut game: Game, network: &mut Network) -> (isize, isize) {
         let mut network_player = NetworkPlayer::new(self.player_config, network);
 
         let initial_cells_alive = game.count_cells(TileState::Alive);
@@ -97,7 +97,9 @@ impl GameTrainerAdapter {
         let cells_killed_reward = initial_cells_alive as isize - finished_cells_alive as isize;
         let taken_rounds_punishment = (self.config.max_rounds - rounds_taken) as isize;
 
-        cells_killed_reward - taken_rounds_punishment
+        // NOTE: It's quite essential that the taken rounds punishment is divided, since otherwise
+        //       we would cancel out all the reward out of directly killed cells, which doesn't work out.
+        (cells_killed_reward, taken_rounds_punishment / 2)
     }
 }
 
@@ -106,8 +108,12 @@ impl TrainerAdapter for GameTrainerAdapter {
         let game = self.game_template.clone();
 
         let reference_score = self.get_reference_score(&game);
-        let network_score = self.get_network_score(game, network);
+        let (network_score, network_punishment) = self.get_network_score(game, network);
 
-        network_score - reference_score
+        // NOTE: I'd imagine it's useful to have the actual performance based score separated from all the
+        //       "artificial" punishments (taken steps etc), as otherwise the comparison to the reference
+        //       score isn't all that fair (if i'm thinking this correctly).
+        let reward = network_score - reference_score;
+        reward - network_punishment
     }
 }

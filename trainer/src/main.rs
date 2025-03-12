@@ -56,19 +56,20 @@ fn main() {
         let config_serialized = fs::read(config_path).expect("Couldn't read config");
         serde_json::from_slice(&config_serialized).expect("Couldn't deserialize config")
     } else {
+        // TODO: Ask config options from user or dump an example config file.
         Config {
             trainer_config: TrainerConfig {
                 generation_contenders: 8,
-                generation_mutations: 9,   // 15,  9
-                generation_iterations: 10, //  2, 10
+                generation_mutations: 3,
+                generation_iterations: 50,
                 generation_unstable: false,
                 slow_generational_lookahead: 0,
             },
             adapter_config: GameTrainerAdapterConfig {
-                width: 8,        //  8,  12
-                height: 8,       //  8,  12
-                alive_cells: 16, // 16,  72
-                max_rounds: 20,  // 20,  80
+                width: 12,
+                height: 12,
+                alive_cells: 72,
+                max_rounds: 20,
                 disable_nature: false,
             },
         }
