@@ -66,9 +66,10 @@ fn main() {
                 slow_generational_lookahead: 0,
             },
             adapter_config: GameTrainerAdapterConfig {
-                width: 12,
-                height: 12,
+                width: 16,
+                height: 16,
                 alive_cells: 72,
+                block_size: 1,
                 max_rounds: 20,
                 disable_nature: false,
             },

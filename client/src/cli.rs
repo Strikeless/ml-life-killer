@@ -123,10 +123,15 @@ where
                 .context("missing alive count")?
                 .parse::<usize>()?;
 
+            let block_size = args
+                .next()
+                .and_then(|s| usize::from_str_radix(s, 10).ok())
+                .unwrap_or(1);
+
             let mut state = state_arc.write().unwrap();
             let board = &mut state.game.board;
 
-            *board = GameBoard::new_random(board.width, board.height, alive_count);
+            *board = GameBoard::new_random(board.width, board.height, alive_count, block_size);
         }
 
         "exit" => {

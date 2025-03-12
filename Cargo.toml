@@ -1,3 +1,3 @@
 [workspace]
-members = ["libgame", "client", "libml", "trainer"]
+members = ["libgame", "client", "libml", "trainer", "netdump"]
 resolver = "2"

@@ -15,7 +15,18 @@ use super::{TrainerAdapter, TrainerAdapterFactory};
 pub struct GameTrainerAdapterConfig {
     pub width: usize,
     pub height: usize,
+
+    /// The amount of alive cells to spawn at the start of a game.
     pub alive_cells: usize,
+
+    /// The size of a single "block" of cells to spawn, a value of one will result in completely random spawning,
+    /// while a value of two will result in 2x2 clusters of alive cells. The only reason this is implemented is
+    /// because the networks forgot how to kill 2x2 blocks after a while of training (lol).
+    /// NOTE: alive_cells still refers to "cells" instead of "blocks", but will round down to a block cell count.
+    pub block_size: usize,
+
+    /// The maximum number of rounds a single game will be played for in one iteration.
+    /// If all cells are dead earlier, the game will stop early.
     pub max_rounds: usize,
 
     /// Disable any "natural" progression of the game completely,
@@ -46,7 +57,7 @@ impl GameTrainerAdapter {
         player_config: NetworkPlayerConfig,
     ) -> Self {
         let game_template = Game::new(
-            GameBoard::new_random(config.width, config.height, config.alive_cells),
+            GameBoard::new_random(config.width, config.height, config.alive_cells, config.block_size),
             Rule::default(),
         );
 
@@ -112,7 +123,7 @@ impl TrainerAdapter for GameTrainerAdapter {
 
         // NOTE: I'd imagine it's useful to have the actual performance based score separated from all the
         //       "artificial" punishments (taken steps etc), as otherwise the comparison to the reference
-        //       score isn't all that fair (if i'm thinking this correctly).
+        //       score isn't all that fair (if I'm thinking this correctly).
         let reward = network_score - reference_score;
         reward - network_punishment
     }
