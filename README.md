@@ -9,3 +9,6 @@ Features a very basic neural network library, a reinforcement learning and mutat
 
 ## Why
 Because it sounds funny
+
+---
+![Demo GIF](images/demo.gif)
