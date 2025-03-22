@@ -3,13 +3,13 @@
 use std::{cmp::Ordering, collections::VecDeque, env, fs, path::PathBuf, time::Instant};
 
 use adapter::{
-    TrainerAdapter, TrainerAdapterFactory,
     game::{GameTrainerAdapterConfig, GameTrainerAdapterFactory},
+    TrainerAdapter, TrainerAdapterFactory,
 };
 use colored::{ColoredString, Colorize};
 use libml::{
-    game::{NetworkPlayerConfig, networksave::NetworkSave},
-    network::Network,
+    game::{networksave::NetworkSave, NetworkPlayerConfig},
+    network::{functions::{Activator, Combinator}, Network, NetworkConfig},
 };
 use serde::{Deserialize, Serialize};
 use trainer::{Trainer, TrainerConfig};
@@ -38,6 +38,10 @@ fn main() {
         let kernel_diameter: usize = 5;
 
         let network = Network::new(
+            NetworkConfig {
+                activator: Activator::ReLU,
+                combinator: Combinator::Add,
+            },
             kernel_diameter.pow(2), // Input layer height
             3,                      // Hidden layer count
             15,                     // Hidden layer height
@@ -59,18 +63,17 @@ fn main() {
         // TODO: Ask config options from user or dump an example config file.
         Config {
             trainer_config: TrainerConfig {
-                generation_contenders: 8,
-                generation_mutations: 3,
-                generation_iterations: 50,
-                generation_unstable: false,
-                slow_generational_lookahead: 0,
+                generation_contenders: 16,
+                generation_mutations: 4,
+                generation_mutations_jitter: 3,
+                generation_iterations: 20,
             },
             adapter_config: GameTrainerAdapterConfig {
                 width: 16,
                 height: 16,
-                alive_cells: 72,
+                alive_cells: 128,
                 block_size: 1,
-                max_rounds: 20,
+                max_rounds: 128,
                 disable_nature: false,
             },
         }

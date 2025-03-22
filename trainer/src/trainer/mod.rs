@@ -23,17 +23,11 @@ pub struct TrainerConfig {
     /// The amount of mutations to apply to contenders in a single generation.
     pub generation_mutations: usize,
 
+    /// The amount of randomization to add to the mutation count of each competing contender in a generation.
+    pub generation_mutations_jitter: usize,
+
     /// The number of iterations in a single generation to average scores from.
     pub generation_iterations: usize,
-
-    /// Whether or not the original network can be replaced by mutated derivatives, even if there was no score gain.
-    pub generation_unstable: bool,
-
-    /// How many generations to try mutating upfront when trying a network during a generation.
-    /// NOTE: This is incredibly slow, and gets exponentially slower by each lookahead layer!
-    ///       I would assume this to substantially reduce generational regressions, but it may not be worth it.
-    /// TODO: Implement
-    pub slow_generational_lookahead: usize,
 }
 
 pub struct Trainer<A, AF>
@@ -72,7 +66,12 @@ where
         // NOTE: -1 because we chain the original network.
         let contenders = iter::repeat_n(network.clone(), self.config.generation_contenders - 1)
             .map(|mut new_contender| {
-                for _ in 0..self.config.generation_mutations {
+                let mutation_count_randomization = rand::rng().random_range(
+                    -(self.config.generation_mutations_jitter as i32)..(self.config.generation_mutations_jitter as i32)
+                );
+
+                let mutation_count = (self.config.generation_mutations as i32 + mutation_count_randomization).max(1) as usize;
+                for _ in 0..mutation_count {
                     new_contender = self.mutate(new_contender);
                 }
 
@@ -108,7 +107,6 @@ where
 
         // SAFETY: There's always going to be atleast one contender (due to including the original network),
         //         so unwrap should always be OK.
-        // TODO: Implement unstable again, the config switch already exists.
         scored_contenders.max_by_key(|(_, score)| *score).unwrap()
     }
 

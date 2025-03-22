@@ -7,8 +7,9 @@ edition = "2024"
 slotmap = { version = "1.0", features = ["serde"] }
 rand = "0.9"
 itertools = "0.14"
-
 anyhow = "1.0"
+strum = { version = "0.27", features = ["derive"] }
+
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 rmp-serde = "1.3"

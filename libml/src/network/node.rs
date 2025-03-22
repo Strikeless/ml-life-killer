@@ -1,14 +1,8 @@
 use serde::{Deserialize, Serialize};
 
 use super::{
-    Value,
-    layer::{LayerOutputMap, NodeKey},
+    layer::{LayerOutputMap, NodeKey}, NetworkConfig, Value
 };
-
-use std::ops::Add;
-
-const VALUE_COMBINATOR: fn(Value, Value) -> Value = f32::add;
-const ACTIVATION_FUNCTION: fn(Value) -> Value = |input| /*input.sin()*/ input.tanh();
 
 #[derive(Debug, Clone, PartialEq, Default, Deserialize, Serialize)]
 pub struct Node {
@@ -16,11 +10,11 @@ pub struct Node {
 }
 
 impl Node {
-    pub fn compute(&self, input_values: &LayerOutputMap) -> Value {
+    pub fn compute(&self, config: &NetworkConfig, input_values: &LayerOutputMap) -> Value {
         self.inputs
             .iter()
-            .map(|input| input.compute(input_values))
-            .fold(0.0, VALUE_COMBINATOR)
+            .map(|input| input.compute(config, input_values))
+            .fold(0.0, |a, b| config.combinator.combine(a, b))
     }
 }
 
@@ -31,9 +25,9 @@ pub struct NodeInput {
 }
 
 impl NodeInput {
-    fn compute(&self, input_values: &LayerOutputMap) -> Value {
+    fn compute(&self, config: &NetworkConfig, input_values: &LayerOutputMap) -> Value {
         let input_value = *input_values.get(self.node_key).expect("Missing input");
         let weighted_value = input_value * self.weight;
-        ACTIVATION_FUNCTION(weighted_value)
+        config.activator.activate(weighted_value)
     }
 }

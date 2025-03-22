@@ -1,5 +1,6 @@
 use std::iter;
 
+use functions::{Activator, Combinator};
 use itertools::Itertools;
 use layer::{Layer, LayerOutputMap, compute::ComputeLayer, input::InputLayer};
 use serde::{Deserialize, Serialize};
@@ -7,17 +8,26 @@ use serde::{Deserialize, Serialize};
 pub mod harness;
 pub mod layer;
 pub mod node;
+pub mod functions;
 
 pub type Value = f32;
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize)]
+pub struct NetworkConfig {
+    pub activator: Activator,
+    pub combinator: Combinator,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Network {
+    pub config: NetworkConfig,
     pub input_layer: InputLayer,
     pub compute_layers: Vec<ComputeLayer>,
 }
 
 impl Network {
     pub fn new(
+        config: NetworkConfig,
         input_layer_height: usize,
         hidden_layer_count: usize,
         hidden_layer_height: usize,
@@ -36,6 +46,7 @@ impl Network {
         };
 
         Self {
+            config,
             input_layer,
             compute_layers,
         }
@@ -43,7 +54,7 @@ impl Network {
 
     pub fn compute(&self) -> LayerOutputMap {
         self.layers()
-            .fold(None, |inputs, layer| Some(layer.get_outputs(inputs)))
+            .fold(None, |inputs, layer| Some(layer.get_outputs(&self.config, inputs)))
             .expect("No layers")
     }
 

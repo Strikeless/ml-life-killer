@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 use slotmap::SlotMap;
 
-use crate::network::Value;
+use crate::network::{NetworkConfig, Value};
 
 use super::{Layer, NodeKey};
 
@@ -50,7 +50,7 @@ impl InputLayer {
 }
 
 impl Layer for InputLayer {
-    fn get_outputs(&self, _inputs: Option<super::LayerOutputMap>) -> super::LayerOutputMap {
+    fn get_outputs(&self, _config: &NetworkConfig, _inputs: Option<super::LayerOutputMap>) -> super::LayerOutputMap {
         self.output_values
             .iter()
             .map(|(key, value_ref)| (key, *value_ref))

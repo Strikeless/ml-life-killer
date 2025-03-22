@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 use slotmap::SlotMap;
 
-use crate::network::node::Node;
+use crate::network::{node::Node, NetworkConfig};
 
 use super::{Layer, LayerOutputMap, NodeKey};
 
@@ -22,13 +22,13 @@ impl ComputeLayer {
 }
 
 impl Layer for ComputeLayer {
-    fn get_outputs(&self, inputs: Option<LayerOutputMap>) -> LayerOutputMap {
+    fn get_outputs(&self, config: &NetworkConfig, inputs: Option<LayerOutputMap>) -> LayerOutputMap {
         let inputs = inputs.expect("Compute layer wasn't given inputs");
 
         self.nodes
             .iter()
             .map(|(key, node)| {
-                let value = node.compute(&inputs);
+                let value = node.compute(config, &inputs);
                 (key, value)
             })
             .collect()
