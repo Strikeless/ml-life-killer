@@ -107,7 +107,7 @@ impl GameBoard {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Hash)]
 pub enum TileState {
     Alive,
 

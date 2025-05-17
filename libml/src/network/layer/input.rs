@@ -1,9 +1,8 @@
 use serde::{Deserialize, Serialize};
-use slotmap::SlotMap;
 
 use crate::network::{NetworkConfig, Value};
 
-use super::{Layer, NodeKey};
+use super::Layer;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct InputLayer {
@@ -12,15 +11,12 @@ pub struct InputLayer {
     // FIXME: It doesn't make sense that we're storing the values inside the network.
     //        This is the only reason adapters need a mutable reference to the network.
     //        We would still need the keys to be stable between serialization cycles, but not the last used values.
-    output_values: SlotMap<NodeKey, Value>,
+    output_values: Vec<Value>,
 }
 
 impl InputLayer {
     pub fn new(height: usize) -> Self {
-        let mut output_values = SlotMap::with_capacity_and_key(height);
-        for _ in 0..height {
-            output_values.insert(0.0);
-        }
+        let output_values = vec![0.0; height];
 
         Self {
             height,
@@ -32,32 +28,26 @@ impl InputLayer {
     where
         I: IntoIterator<Item = Value>,
     {
-        let mut values = values.into_iter();
+        let mut value_iter = values.into_iter();
+        let mut target_value_iter = self.output_values.iter_mut();
 
-        self.output_values = SlotMap::with_capacity_and_key(self.height);
-        for _ in 0..self.height {
-            let value = values.next().expect("Missing input value");
-            self.output_values.insert(value); // WARN: This is nonsense and we're lucky if this always results in the same keys.
+        while let Some(value) = value_iter.next() {
+            let Some(target_value) = target_value_iter.next() else {
+                panic!("Input layer too short ({}) for all values", self.output_values.len());
+            };
+
+            *target_value = value;
         }
-
-        debug_assert!(
-            values.next().is_none(),
-            "Input layer too short for all values ({} < {})",
-            self.output_values.len(),
-            values.count() + 1, // NOTE: +1 because we already consumed one in the assert condition.
-        );
     }
 }
 
 impl Layer for InputLayer {
-    fn get_outputs(&self, _config: &NetworkConfig, _inputs: Option<super::LayerOutputMap>) -> super::LayerOutputMap {
-        self.output_values
-            .iter()
-            .map(|(key, value_ref)| (key, *value_ref))
-            .collect()
+    fn get_outputs(&self, _config: &NetworkConfig, _inputs: Option<Vec<Value>>) -> Vec<Value> {
+        self.output_values.clone()
     }
 
-    fn output_keys(&self) -> Vec<NodeKey> {
-        self.output_values.keys().collect()
+    fn output_node_indices(&self) -> Vec<usize> {
+        (0..self.output_values.len())
+            .collect()
     }
 }

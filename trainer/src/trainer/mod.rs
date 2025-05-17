@@ -3,17 +3,19 @@ use std::{iter, marker::PhantomData};
 use itertools::Itertools;
 use libml::network::{
     Network,
-    layer::NodeKey,
-    node::{Node, NodeInput},
+    node::NodeInput,
 };
+use mutation::Mutation;
 use rand::{
     Rng,
-    seq::{IndexedMutRandom, IndexedRandom, IteratorRandom},
+    seq::IndexedRandom,
 };
 use rayon::iter::{IntoParallelRefMutIterator, ParallelIterator};
 use serde::{Deserialize, Serialize};
 
 use crate::adapter::{TrainerAdapter, TrainerAdapterFactory};
+
+mod mutation;
 
 #[derive(Debug, Clone, Copy, Deserialize, Serialize)]
 pub struct TrainerConfig {
@@ -111,88 +113,6 @@ where
     }
 
     fn mutate(&self, mut network: Network) -> Network {
-        #[derive(Debug)]
-        enum Mutation<'a> {
-            AdjustWeight {
-                input: &'a mut NodeInput,
-                adjustment: f32,
-            },
-            InputCreation {
-                node: &'a mut Node,
-                src_node_key: NodeKey,
-                weight: f32,
-            },
-            InputDeletion {
-                node: &'a mut Node,
-                input_index: usize,
-            },
-        }
-
-        fn weight_adjustment(network: &mut Network) -> Option<Mutation> {
-            let rng = &mut rand::rng();
-
-            let comp_layer = network.compute_layers.choose_mut(rng)?;
-            let node = comp_layer.nodes.values_mut().choose(rng)?;
-            let input = node.inputs.choose_mut(rng)?;
-
-            let adjustment_max_magnitude = (input.weight.abs() / 2.0).max(0.01);
-            let adjustment = rng.random_range(-adjustment_max_magnitude..adjustment_max_magnitude);
-
-            Some(Mutation::AdjustWeight { input, adjustment })
-        }
-
-        fn input_creation(network: &mut Network) -> Option<Mutation> {
-            let rng = &mut rand::rng();
-
-            let comp_layer_count = network.compute_layers.len();
-            let comp_layer_index =
-                (comp_layer_count > 0).then(|| rng.random_range(0..comp_layer_count))?;
-
-            let src_node_key = {
-                // NOTE: comp_layer_index is already the previous layer index here since we're going
-                //       from a compute layer index (doesn't include input layer!) to a layer index.
-                let prev_layer_index = comp_layer_index;
-                let prev_layer_node_keys = network.layer(prev_layer_index)?.output_keys();
-                prev_layer_node_keys.into_iter().choose(rng)?
-            };
-
-            let node = {
-                let layer = network.compute_layers.get_mut(comp_layer_index)?;
-                layer.nodes.values_mut().choose(rng)?
-            };
-
-            // If the selected node already has an input to the same source node, don't continue.
-            if node
-                .inputs
-                .iter()
-                .any(|input| input.node_key == src_node_key)
-            {
-                return None;
-            }
-
-            let weight = rng.random_range(-2.0..=2.0);
-
-            Some(Mutation::InputCreation {
-                node,
-                src_node_key,
-                weight,
-            })
-        }
-
-        fn input_deletion(network: &mut Network) -> Option<Mutation> {
-            let rng = &mut rand::rng();
-
-            let comp_layer = network.compute_layers.choose_mut(rng)?;
-            let node = comp_layer.nodes.values_mut().choose(rng)?;
-
-            let input_index = {
-                let input_count = node.inputs.len();
-                (input_count > 0).then(|| rng.random_range(0..input_count))?
-            };
-
-            Some(Mutation::InputDeletion { node, input_index })
-        }
-
         let preferred_mutation_providers = {
             let preferred_mutation_type_choice = [(0, 7), (1, 1), (2, 2)]
                 .choose_weighted(&mut rand::rng(), |(_, weight)| *weight)
@@ -200,9 +120,9 @@ where
                 .unwrap();
 
             match preferred_mutation_type_choice {
-                0 => vec![weight_adjustment, input_creation, input_deletion],
-                1 => vec![input_creation, weight_adjustment, input_deletion],
-                2 => vec![input_deletion, weight_adjustment, input_creation],
+                0 => vec![mutation::weight_adjustment, mutation::input_creation, mutation::input_deletion],
+                1 => vec![mutation::input_creation, mutation::weight_adjustment, mutation::input_deletion],
+                2 => vec![mutation::input_deletion, mutation::weight_adjustment, mutation::input_creation],
                 _ => unreachable!(),
             }
         };
@@ -218,11 +138,11 @@ where
                 }
                 Mutation::InputCreation {
                     node,
-                    src_node_key,
+                    src_node_index,
                     weight,
                 } => {
                     node.inputs.push(NodeInput {
-                        node_key: src_node_key,
+                        node_index: src_node_index,
                         weight,
                     });
                 }

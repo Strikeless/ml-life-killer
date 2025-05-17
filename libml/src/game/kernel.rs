@@ -2,7 +2,7 @@ use libgame::board::TileState;
 
 use crate::network::harness::InputProvider;
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct Kernel {
     pub tiles: Vec<Option<TileState>>,
 }

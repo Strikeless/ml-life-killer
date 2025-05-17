@@ -1,19 +1,11 @@
-use slotmap::{SecondaryMap, new_key_type};
-
 use super::{NetworkConfig, Value};
 
 pub mod compute;
 pub mod input;
 
-new_key_type! {
-    pub struct NodeKey;
-}
-
-pub type LayerOutputMap = SecondaryMap<NodeKey, Value>;
-
 pub trait Layer {
-    fn get_outputs(&self, config: &NetworkConfig, inputs: Option<LayerOutputMap>) -> LayerOutputMap;
+    fn get_outputs(&self, config: &NetworkConfig, inputs: Option<Vec<Value>>) -> Vec<Value>;
 
     // A vtable can't be built with an "impl Iterator" return type :(
-    fn output_keys(&self) -> Vec<NodeKey>;
+    fn output_node_indices(&self) -> Vec<usize>;
 }

@@ -1,8 +1,5 @@
 use std::{
-    io,
-    process::exit,
-    sync::{Arc, RwLock},
-    time::Duration,
+    io, os::linux::raw::stat, process::exit, sync::{Arc, RwLock}, time::Duration
 };
 
 use anyhow::{anyhow, bail, Context};
@@ -25,7 +22,7 @@ pub fn run_cli(state_arc: Arc<RwLock<State>>) {
     }
 }
 
-fn handle_cmd<'a, I>(state_arc: Arc<RwLock<State>>, mut args: I) -> anyhow::Result<()>
+pub fn handle_cmd<'a, I>(state_arc: Arc<RwLock<State>>, mut args: I) -> anyhow::Result<()>
 where
     I: Iterator<Item = &'a str>,
 {
@@ -132,6 +129,17 @@ where
             let board = &mut state.game.board;
 
             *board = GameBoard::new_random(board.width, board.height, alive_count, block_size);
+        }
+
+        "setrate" => {
+            let tick_rate_millis = args.next()
+                .context("Missing tick rate millis")?
+                .parse().context("Not a valid integer")?;
+
+            let mut state = state_arc.write().unwrap();
+            for ticker in state.tickers.values_mut() {
+                ticker.set_rate(tick_rate_millis);
+            }
         }
 
         "exit" => {

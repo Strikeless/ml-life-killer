@@ -2,7 +2,7 @@ use std::iter;
 
 use functions::{Activator, Combinator};
 use itertools::Itertools;
-use layer::{Layer, LayerOutputMap, compute::ComputeLayer, input::InputLayer};
+use layer::{Layer, compute::ComputeLayer, input::InputLayer};
 use serde::{Deserialize, Serialize};
 
 pub mod harness;
@@ -18,8 +18,18 @@ pub struct NetworkConfig {
     pub combinator: Combinator,
 }
 
+impl Default for NetworkConfig {
+    fn default() -> Self {
+        Self {
+            activator: Activator::Tanh,
+            combinator: Combinator::Add,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Network {
+    #[serde(skip)]
     pub config: NetworkConfig,
     pub input_layer: InputLayer,
     pub compute_layers: Vec<ComputeLayer>,
@@ -52,7 +62,7 @@ impl Network {
         }
     }
 
-    pub fn compute(&self) -> LayerOutputMap {
+    pub fn compute(&self) -> Vec<Value> {
         self.layers()
             .fold(None, |inputs, layer| Some(layer.get_outputs(&self.config, inputs)))
             .expect("No layers")

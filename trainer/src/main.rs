@@ -1,6 +1,6 @@
 #![feature(let_chains)]
 
-use std::{cmp::Ordering, collections::VecDeque, env, fs, path::PathBuf, time::Instant};
+use std::{cmp::Ordering, collections::VecDeque, env, fs, path::{Path, PathBuf}, process::exit, time::Instant};
 
 use adapter::{
     game::{GameTrainerAdapterConfig, GameTrainerAdapterFactory},
@@ -31,37 +31,11 @@ fn main() {
         .and_then(|run_id| (&run_id != "-").then_some(run_id))
         .unwrap_or_else(|| chrono::Local::now().format("%Y%m%d").to_string());
 
-    let network_save = if let Some(network_save_path) = args.next() {
-        NetworkSave::load(network_save_path).expect("Couldn't load network save")
-    } else {
-        // TODO: Ask network parameters from the user interactively
-        let kernel_diameter: usize = 5;
-
-        let network = Network::new(
-            NetworkConfig {
-                activator: Activator::ReLU,
-                combinator: Combinator::Add,
-            },
-            kernel_diameter.pow(2), // Input layer height
-            3,                      // Hidden layer count
-            15,                     // Hidden layer height
-            2,                      // Output layer height
-        );
-
-        let player_config = NetworkPlayerConfig { kernel_diameter };
-
-        NetworkSave {
-            network,
-            player_config,
-        }
-    };
-
-    let config = if let Some(config_path) = args.next() {
+    let config: Config = if let Some(config_path) = args.next() {
         let config_serialized = fs::read(config_path).expect("Couldn't read config");
         serde_json::from_slice(&config_serialized).expect("Couldn't deserialize config")
     } else {
-        // TODO: Ask config options from user or dump an example config file.
-        Config {
+        let default_config = Config {
             trainer_config: TrainerConfig {
                 generation_contenders: 16,
                 generation_mutations: 4,
@@ -75,7 +49,49 @@ fn main() {
                 block_size: 1,
                 max_rounds: 128,
                 disable_nature: false,
+                evil: true,
             },
+        };
+
+        let default_config_path = Path::new("trainer_default_config.json");
+        let write_result = fs::write(
+            default_config_path,
+            serde_json::to_string_pretty(&default_config).expect("Serializing default config"),
+        );
+
+        match write_result {
+            Ok(_) => println!("Default config written to '{}'.", default_config_path.display()),
+            Err(e) => eprintln!("Error writing default config to '{}': {:?}", default_config_path.display(), e),
+        }
+
+        exit(0);
+    };
+
+    let network_save = if let Some(network_save_path) = args.next() && network_save_path != "-" {
+        NetworkSave::load(network_save_path).expect("Couldn't load network save")
+    } else {
+        // TODO: Ask network parameters from the user interactively
+        let kernel_diameter: usize = 5;
+
+        let network = Network::new(
+            NetworkConfig {
+                activator: Activator::ReLU,
+                combinator: Combinator::Mul,
+            },
+            kernel_diameter.pow(2), // Input layer height
+            3,                      // Hidden layer count
+            16,                     // Hidden layer height
+            2,                      // Output layer height
+        );
+
+        let player_config = NetworkPlayerConfig {
+            kernel_diameter,
+            use_kernel_cache: false,
+        };
+
+        NetworkSave {
+            network,
+            player_config,
         }
     };
 

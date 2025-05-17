@@ -1,4 +1,5 @@
 networks/
+configs/
 
 flamegraph.svg
 perf.data

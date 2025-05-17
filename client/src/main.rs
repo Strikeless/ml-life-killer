@@ -29,5 +29,7 @@ fn main() {
     let cli_state_arc = state_arc.clone();
     thread::spawn(move || cli::run_cli(cli_state_arc));
 
+    
+
     renderer::run(state_arc);
 }

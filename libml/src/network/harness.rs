@@ -55,7 +55,6 @@ impl<'a, S> NetworkHarness<'a, S> {
         self.network
             .compute()
             .into_iter()
-            .map(|(_key, value)| value)
     }
 
     fn update_inputs(&mut self, state: &S) {

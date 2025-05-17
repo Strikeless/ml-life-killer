@@ -1,8 +1,9 @@
-use std::cmp::Ordering;
+use std::{cmp::Ordering, collections::HashMap};
 
 use itertools::Itertools;
 use kernel::Kernel;
 use libgame::{Game, board::TileState, pos::Position};
+use rand::seq::SliceRandom;
 use serde::{Deserialize, Serialize};
 
 use crate::network::{Network, harness::NetworkHarness};
@@ -13,11 +14,16 @@ pub mod networksave;
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
 pub struct NetworkPlayerConfig {
     pub kernel_diameter: usize,
+
+    /// Whether to reuse network responses for identical kernels. This renders any kind of randomization/heat quite useless
+    /// but can make training significantly faster for bigger board or kernel sizes, trading memory usage for performance.
+    pub use_kernel_cache: bool,
 }
 
 pub struct NetworkPlayer<'a> {
     pub config: NetworkPlayerConfig,
     pub network_harness: NetworkHarness<'a, Kernel>,
+    kernel_cache: Option<HashMap<Kernel, KernelOutput>>,
 }
 
 pub struct NetworkPlayerMove {
@@ -33,6 +39,7 @@ impl<'a> NetworkPlayer<'a> {
         Self {
             config,
             network_harness,
+            kernel_cache: config.use_kernel_cache.then(|| HashMap::new()),
         }
     }
 
@@ -55,7 +62,7 @@ impl<'a> NetworkPlayer<'a> {
                 *chosen_tile = wanted_state;
 
                 Some(NetworkPlayerMove {
-                    new_state: *chosen_tile,
+                    new_state: wanted_state,
                     position: chosen_position,
                 })
             } else {
@@ -71,6 +78,14 @@ impl<'a> NetworkPlayer<'a> {
         let positions = (0..game.board.width)
             .cartesian_product(0..game.board.height)
             .map(|(x, y)| Position { x, y });
+
+        // Randomize the order of tiles as an attempt to force the network to be smarter about it's choices,
+        // since now it can't just always say "yeah I want a cell here because the previous tile has one".
+        let positions = {
+            let mut positions_vec = positions.collect_vec();
+            positions_vec.shuffle(&mut rand::rng());
+            positions_vec.into_iter()
+        };
 
         let scored_positions = positions
             .into_iter()
@@ -93,6 +108,13 @@ impl<'a> NetworkPlayer<'a> {
 
     fn compute_pos(&mut self, game: &Game, pos: Position) -> KernelOutput {
         let kernel = self.get_kernel(game, pos);
+
+        if let Some(kernel_cache) = &self.kernel_cache {
+            if let Some(cached_output) = kernel_cache.get(&kernel) {
+                return *cached_output;
+            }
+        }
+
         let mut network_outputs = self.network_harness.compute(&kernel);
 
         let mut next = || {
@@ -101,10 +123,17 @@ impl<'a> NetworkPlayer<'a> {
                 .expect("Not enough outputs in kernel network")
         };
 
-        KernelOutput {
+        let output = KernelOutput {
             score: next(),
             state: next(),
+        };
+        if let Some(kernel_cache) = &mut self.kernel_cache {
+            drop(next);
+            drop(network_outputs);
+            kernel_cache.insert(kernel, output);
         }
+
+        output
     }
 
     fn get_kernel(&self, game: &Game, center_pos: Position) -> Kernel {
@@ -132,6 +161,7 @@ impl<'a> NetworkPlayer<'a> {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub(super) struct KernelOutput {
     /// The score by which selecting the position should be preferred.
     pub score: f32,

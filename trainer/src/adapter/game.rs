@@ -32,6 +32,9 @@ pub struct GameTrainerAdapterConfig {
     /// Disable any "natural" progression of the game completely,
     /// leaving only the network to make changes to the board, this may be useful in the beginning of training.
     pub disable_nature: bool,
+
+    /// Whether to reward for cells killed or cells brought to life.
+    pub evil: bool,
 }
 
 pub struct GameTrainerAdapterFactory {
@@ -80,7 +83,12 @@ impl GameTrainerAdapter {
             }
 
             let finished_cells_alive = game.count_cells(TileState::Alive);
-            initial_cells_alive as isize - finished_cells_alive as isize
+
+            if self.config.evil {
+                initial_cells_alive as isize - finished_cells_alive as isize
+            } else {
+                finished_cells_alive as isize - initial_cells_alive as isize
+            }
         }
     }
 
@@ -88,12 +96,16 @@ impl GameTrainerAdapter {
         let mut network_player = NetworkPlayer::new(self.player_config, network);
 
         let initial_cells_alive = game.count_cells(TileState::Alive);
+        let mut skipped_turns = 0;
 
         let mut rounds_taken = 0;
         let finished_cells_alive = loop {
             rounds_taken += 1;
 
-            network_player.play_step(&mut game);
+            let network_move = network_player.play_step(&mut game);
+            if network_move.is_none() {
+                skipped_turns += 1;
+            }
 
             if !self.config.disable_nature {
                 game.tick();
@@ -105,12 +117,22 @@ impl GameTrainerAdapter {
             }
         };
 
-        let cells_killed_reward = initial_cells_alive as isize - finished_cells_alive as isize;
-        let taken_rounds_punishment = (self.config.max_rounds - rounds_taken) as isize;
+        let cells_turned_reward = if self.config.evil {
+            initial_cells_alive as isize - finished_cells_alive as isize
+        } else {
+            finished_cells_alive as isize - initial_cells_alive as isize
+        };
 
         // NOTE: It's quite essential that the taken rounds punishment is divided, since otherwise
         //       we would cancel out all the reward out of directly killed cells, which doesn't work out.
-        (cells_killed_reward, taken_rounds_punishment / 2)
+        let taken_rounds_punishment = (self.config.max_rounds - rounds_taken) as isize / 2;
+        
+        // Also punish for many skipped turns, this may not be totally "correct" in every circumstance,
+        // but will generally be a sign of bad behavior at the current state of the networks.
+        let skipped_turns_punishment = skipped_turns / 5;
+        
+        let punishment = taken_rounds_punishment + skipped_turns_punishment;
+        (cells_turned_reward, punishment)
     }
 }
 

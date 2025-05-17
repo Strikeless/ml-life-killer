@@ -1,40 +1,33 @@
 use serde::{Deserialize, Serialize};
-use slotmap::SlotMap;
 
-use crate::network::{node::Node, NetworkConfig};
+use crate::network::{node::Node, NetworkConfig, Value};
 
-use super::{Layer, LayerOutputMap, NodeKey};
+use super::Layer;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ComputeLayer {
-    pub nodes: SlotMap<NodeKey, Node>,
+    pub nodes: Vec<Node>,
 }
 
 impl ComputeLayer {
     pub fn default_n_nodes(count: usize) -> Self {
-        let mut nodes = SlotMap::with_capacity_and_key(count);
-        for _ in 0..count {
-            nodes.insert(Node::default());
-        }
-
+        let nodes = vec![Node::default(); count];
         Self { nodes }
     }
 }
 
 impl Layer for ComputeLayer {
-    fn get_outputs(&self, config: &NetworkConfig, inputs: Option<LayerOutputMap>) -> LayerOutputMap {
+    fn get_outputs(&self, config: &NetworkConfig, inputs: Option<Vec<Value>>) -> Vec<Value> {
         let inputs = inputs.expect("Compute layer wasn't given inputs");
 
         self.nodes
             .iter()
-            .map(|(key, node)| {
-                let value = node.compute(config, &inputs);
-                (key, value)
-            })
+            .map(|node| node.compute(config, &inputs))
             .collect()
     }
 
-    fn output_keys(&self) -> Vec<NodeKey> {
-        self.nodes.keys().collect()
+    fn output_node_indices(&self) -> Vec<usize> {
+        (0..self.nodes.len())
+            .collect()
     }
 }
